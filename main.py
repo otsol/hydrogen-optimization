@@ -1,5 +1,7 @@
 from pulp import LpMaximize, LpProblem, LpStatus, lpSum, LpVariable
 
+#gupropypy?? tarttee lisenssin
+
 # Code source: https://realpython.com/linear-programming-python/
 
 # Create the model
