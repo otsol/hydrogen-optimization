@@ -24,7 +24,7 @@ hours = range(0, nHours)  # 0 ... 8760
 
 # Electrolyzer
 CapacityElec = m.addVar(vtype = GRB.CONTINUOUS, name="CapFactorElec")
-MultiplyCapElec = m.addVars(hours, name="MultiplyCapElec")
+
 
 # Wind
 
@@ -62,7 +62,7 @@ Pdown = 0.70  # 70% muutos maksimikapasiteetista tunnisssa
 RElec = 0.17
 CapFactorElec = m.addVars(hours, ub=1, lb=0, name="CapFactorElec")  # CapFactor, current capacity x%   
 # Multiply helper variable
-
+MultiplyCapElec = m.addVars(hours, name="MultiplyCapElec")
 
 # Wind
 
