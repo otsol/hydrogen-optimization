@@ -16,25 +16,30 @@ import numpy as np
 m = gp.Model("Hydrogen")
 
 # number of hours
-nHours = 100
+nHours = 100            # FINAL VERSION 8760
 # Set of days
-hours = range(0, nHours)  # 0 ... 8760
+hours = range(0, nHours)  # 0 ... 8759
 
 #### ADD DECISION VARIABLES
 
 # Electrolyzer
-CapacityElec = m.addVar(vtype = GRB.CONTINUOUS, name="CapFactorElec")
-MultiplyCapElec = m.addVars(hours, name="MultiplyCapElec")
+CapacityElec = m.addVar(vtype = GRB.CONTINUOUS, name="CapasityElec")
+MultiplyCapElec = m.addVars(hours, name="MultiplyCapElec") # multiply helper variable
+
 
 # Wind
+CapacityWind = m.addVar(vtype = GRB.CONTINUOUS, name="CapacityWind") # Ostettu tuulen tuotantokapasiteetti (MW) PAP
+
+WindProd = m.addVars(hours, name="WindProd") # multiply helper variable
+
 
 # Solar
 
-CapacitySolar = m.addVar(vtype = GRB.CONTINUOUS, name="CapacitySolar") # Ostettu tuulen tuotantokapasiteetti (MW) PAP
+""" CapacitySolar = m.addVar(vtype = GRB.CONTINUOUS, name="CapacitySolar") # Ostettu aurinkovoiman tuotantokapasiteetti (MW) PAP
 
 BaseProdSolar = m.addVar(vtype = GRB.CONTINUOUS, name="BaseProdSolar") # Tuntikohtainen tuotanto baseload sopimuksessa (vakio)
 
-MultiplyCapSolar = m.addVars(hours, name="MultiplyCapSolar") # multiply helper variable
+SolarProd = m.addVars(hours, name="SolarProd") # multiply helper variable """
 
 # Battery
 
@@ -42,39 +47,47 @@ MultiplyCapSolar = m.addVars(hours, name="MultiplyCapSolar") # multiply helper v
 
 # Grid
 
+# Supporting variables
 
+ElectrisityProd = m.addVar(vtype = GRB.CONTINUOUS, name="ElectrisityProd") # CapasityWind * CapFactorWind[h] + CapasitySolar * CapFactorSolar[h]
 
 #### ADD PARAMETERS
 
 # Demand 
-#### ADD ####
-# SELKEÄMPI JOS TASAINEN TUOTANTO? HEINÄKUULLE OLETETTU SEISOKKI
-Demand = np.zeros(nHours)
-Demand[0:nHours] = 15000      # July maintenance break
-#Demand[5784:8760] = 15000   # July maintenance break
+Demand = np.zeros(nHours)     # nhours 
+Demand[0:nHours-20] = 15000      # January-June production
+Demand[nHours-10:nHours] = 15000      # January-June production
+#Demand[5784:8760] = 15000   # July maintenance break and after full steam. KOMMENTTI POIS LOPULLISESSA
 
 # Electrolyzer
 CapexElec = 845     # € / kWe
 OpexElec = 17       # € / kWe
 EfficiencyElec = 64
 Pup = 0.50  # 50% muutos maksimikapasiteetista tunnissa
-Pdown = 0.70  # 70% muutos maksimikapasiteetista tunnisssa
+## Pdown = 0.70  # 70% muutos maksimikapasiteetista tunnisssa TÄMÄ POIS?
 RElec = 0.17
-CapFactorElec = m.addVars(hours, ub=1, lb=0, name="CapFactorElec")  # CapFactor, current capacity x%   
-# Multiply helper variable
+CapFactorElec = m.addVars(hours, ub=1, lb=0, name="CapFactorElec")  # CapFactor, current capacity x%
+
 
 
 # Wind
+PapPriceWind = 52   # PPA pay-as-produced hinta (€ / MWhh)
+ElecTax = 0.63     # sähkönvero (€ / MWh)
+#TransmisFee = ??   # sähkönsiirtomaksu (€ / MWh)
 
+CapFactorWind = []  # Tuntikohtainen kapasiteettikerroin
+for h in hours:
+    n = random.random()  # rando capacity factor between 0 ... 1
+    CapFactorWind.append(n)
 
 # Solar
-PapPriceSolar = 1  # PPA pay-as-produced hinta (€ / MWh)
-BasePriceSolar = 0.3  # PPA baseload hinta (€ / MWh)
+#PapPriceSolar = 1  # PPA pay-as-produced hinta (€ / MWh)
+#BasePriceSolar = 0.3  # PPA baseload hinta (€ / MWh)
 
-CapFactorSolar = []  # Tuntikohtainen kapasiteettikerroin
+""" CapFactorSolar = []  # Tuntikohtainen kapasiteettikerroin
 for h in hours:
     n = random.random()  # random demand between 0 ... 1
-    CapFactorSolar.append(n)
+    CapFactorSolar.append(n) """
 
 # Battery
 
@@ -90,18 +103,26 @@ for h in hours:
 m.addConstrs((CapFactorElec[i] <= (Pup + CapFactorElec[i - i]) for i in range(1, nHours)), name="CFEIncreaseConstr")
 m.addConstrs((CapFactorElec[i] >= (Pup - CapFactorElec[i - i]) for i in range(1, nHours)), name="CFEDecreaseConstr")
 
-m.addConstrs((MultiplyCapSolar[h]
-              == (CapacitySolar * CapFactorSolar[h]) for h in range(1, nHours)), name="mul2")
+""" m.addConstrs((SolarProd[h]
+              == (CapacitySolar * CapFactorSolar[h]) for h in range(0, nHours)), name="mulSolar") """
+m.addConstrs((WindProd[h]
+              == (CapacityWind * CapFactorWind[h]) for h in range(0, nHours)), name="mulWind")
 m.addConstrs((MultiplyCapElec[h]
-              == (CapacityElec * CapFactorElec[h]) for h in range(1, nHours)), name="mul1")
+              == (CapacityElec * CapFactorElec[h]) for h in range(0, nHours)), name="mulElec")
 
 # Production has to meet demand
-m.addConstrs(((MultiplyCapSolar[h] + BaseProdSolar)
+
+# ei vielä auringolle dataa
+""" m.addConstrs(((SolarProd[h] + BaseProdSolar)
               * EfficiencyElec * MultiplyCapElec[h] >= (Demand[h])
-              for h in range(1, nHours)), "*")
+              for h in range(1, nHours + 1)), "*") """
+
+m.addConstrs((WindProd[h] * EfficiencyElec * MultiplyCapElec[h] >= (Demand[h])
+              for h in range(0, nHours)), "*")
 
 #### SET OBJECTIVE
-m.setObjective(((CapexElec*RElec + OpexElec)*CapacityElec), GRB.MINIMIZE)
+m.setObjective(((CapexElec*RElec + OpexElec)*CapacityElec 
+                + gp.quicksum(PapPriceWind*(1+ElecTax)*CapFactorWind[h]*CapacityWind for h in range(1,nHours))), GRB.MINIMIZE)
 
 #### OPTIMIZE
 
