@@ -23,13 +23,12 @@ hours = range(0, nHours)  # 0 ... 8759
 #### ADD DECISION VARIABLES
 
 # Electrolyzer
-CapacityElec = m.addVar(vtype = GRB.CONTINUOUS, name="CapasityElec")
-PowerElec = m.addVars(hours, name="PowerElec") # multiply helper variable
-
+CapacityElec = m.addVar(vtype = GRB.CONTINUOUS, name="CapacityElec")
+#PowerElec = m.addVars(hours, name="PowerElec") # multiply helper variable POIS??
+HydrogenProd = m.addVars(hours, name="HydrogenProd") # Hourly hydrogen production (kg)
 
 # Wind
 CapacityWind = m.addVar(vtype = GRB.CONTINUOUS, name="CapacityWind") # Ostettu tuulen tuotantokapasiteetti (MW) PAP
-
 WindProd = m.addVars(hours, name="WindProd") # multiply helper variable
 
 
@@ -44,36 +43,38 @@ SolarProd = m.addVars(hours, name="SolarProd") # multiply helper variable """
 # Battery
 
 # Storage
+CapacityStorage = m.addVar(vtype = GRB.CONTINUOUS, name="CapacityStorage") # Hydrogen storage capacity (kg)
+HydrogenStored = m.addVars(hours, name="HydrogenStored") # Hourly storage level of hydrogen(kg)
 
 # Grid
+ElectricitySold = m.addVars(hours, name="ElectricitySold") # Hourly sales of electricity
 
 # Supporting variables
 
-ElectrisityProd = m.addVar(vtype = GRB.CONTINUOUS, name="ElectrisityProd") # CapasityWind * CapFactorWind[h] + CapasitySolar * CapFactorSolar[h]
+ElectrisityProd = m.addVars(hours, name="ElectrisityProd") # CapasityWind * CapFactorWind[h] + CapasitySolar * CapFactorSolar[h]
 
 #### ADD PARAMETERS
 
 # Demand 
 Demand = np.zeros(nHours)     # hourly demand
-Demand[0:nHours-20] = 15000      # January-June production
-Demand[nHours-10:nHours] = 15000     
+Demand[0:nHours-20] = 2000      # January-June production
+Demand[nHours-10:nHours] = 2000     
 #Demand[5784:8760] = 15000   # July maintenance break and after full steam. KOMMENTTI POIS LOPULLISESSA
 
 # Electrolyzer
-CapexElec = 845     # € / kWe
-OpexElec = 17       # € / kWe
+CapexElec = 850000     # € / MWe 
+OpexElec = 17000       # € / MWe
 EfficiencyElec = 16 # kg H2 / MWHe     
-Pup = 0.50  # 50% muutos maksimikapasiteetista tunnissa
-## Pdown = 0.70  # 70% muutos maksimikapasiteetista tunnisssa TÄMÄ POIS?
+Pchange = 0.50  # 50% muutos maksimikapasiteetista tunnissa
 RElec = 0.17
-CapFactorElec = m.addVars(hours, ub=1, lb=0, name="CapFactorElec")  # CapFactor, current capacity x%
+""" CapFactorElec = m.addVars(hours, ub=1, lb=0, name="CapFactorElec")  # CapFactor, current capacity x% """
 
 
 
 # Wind
 PapPriceWind = 52   # PPA pay-as-produced hinta (€ / MWhh)
 ElecTax = 0.63     # sähkönvero (€ / MWh)
-#TransmisFee = ??   # sähkönsiirtomaksu (€ / MWh)
+TransmisFee = 4.0   # sähkönsiirtomaksu (€ / MWh) PÄIVITÄ KUN DATAA
 
 CapFactorWind = []  # Tuntikohtainen kapasiteettikerroin
 for h in hours:
@@ -92,37 +93,59 @@ for h in hours:
 # Battery
 
 # Storage
+CapexStorage = 1000  # € / kg PÄIVITÄ KUN DATAA
+OpexStorage = 20     # € / kg PÄIVITÄ KUN DATAA
+RStorage = 0.17     # interest rate PÄIVITÄ KUN DATAA
 
 # Grid
-
+GridPrice = []  # Tuntikohtainen kapasiteettikerroin
+for h in hours:
+    n = random.random()*80  # rando capacity factor between 0 ... 80
+    GridPrice.append(n)
 
 
 #### ADD CONSTRAINTS
 
-# Constraints for Pup and Pdown
-m.addConstrs((CapFactorElec[i] <= (Pup + CapFactorElec[i - i]) for i in range(1, nHours)), name="CFEIncreaseConstr")
-m.addConstrs((CapFactorElec[i] >= (Pup - CapFactorElec[i - i]) for i in range(1, nHours)), name="CFEDecreaseConstr")
+# Constrain definitions for supporting variables
+m.addConstrs((WindProd[h]
+              == (CapacityWind * CapFactorWind[h]) for h in range(0, nHours)), name="mulWind")
+
+## LISÄÄ SUMMAAN SolarProd[h]
+m.addConstrs((ElectrisityProd[h]
+              == (WindProd[h]) for h in range(0, nHours)), name="ElectisityProdConstr")
+
+# Production and change in storage needs to meet demand
+m.addConstrs((Demand[h]
+              == (HydrogenProd[h] + HydrogenStored[h-1] - HydrogenStored[h]) for h in range(1, nHours)), name="DemandConstr")
+
+# There needs to be enough electrisity for hydrogen production HUOM! LISÄTÄÄN ELECTRISITY SOLD JA AKUN MUUTOKSEN VAIKUTUS TÄHÄN
+m.addConstrs((HydrogenProd[h]
+              == (ElectrisityProd[h] - ElectricitySold[h])*EfficiencyElec for h in range(0, nHours)), name="ElectrisityForProdConstr")
+
+# Hydrogen production cannot exceed capacity
+m.addConstrs((HydrogenProd[h]
+              <= CapacityElec * EfficiencyElec for h in range(0, nHours)), name="HydrogenProdCapacityConstr")
+
+# Constraints for Pchange 
+m.addConstrs((HydrogenProd[h] - HydrogenProd[h-1] <= (Pchange * CapacityElec * EfficiencyElec) for i in range(1, nHours)), name="PupConstr")
+m.addConstrs((HydrogenProd[h-1] - HydrogenProd[h] <= (Pchange * CapacityElec * EfficiencyElec) for i in range(1, nHours)), name="PdownConstr")
+
+# Hydrogen storage cannot exceed capacity. Initial condition = 0
+m.addConstrs((HydrogenStored[h] <= CapacityStorage for h in range(1, nHours)), name="CapasityStorageConstr")
+m.addConstr((HydrogenStored[0] == 0 ), name="StorageInitConditionConstr")
+
+# Electrisity balance
+m.addConstrs((ElectrisityProd[h] - HydrogenProd[h]*(1/EfficiencyElec) - ElectricitySold[h] == 0 for i in range(0, nHours)), name="ElectrisityBalanceConstr")
+
 
 """ m.addConstrs((SolarProd[h]
               == (CapacitySolar * CapFactorSolar[h]) for h in range(0, nHours)), name="mulSolar") """
-m.addConstrs((WindProd[h]
-              == (CapacityWind * CapFactorWind[h]) for h in range(0, nHours)), name="mulWind")
-m.addConstrs((PowerElec[h]
-              == (CapacityElec * CapFactorElec[h]) for h in range(0, nHours)), name="mulElec")
-
-# Production has to meet demand
-
-# ei vielä auringolle dataa
-""" m.addConstrs(((SolarProd[h] + BaseProdSolar)
-              * EfficiencyElec * PowerElec[h] >= (Demand[h])
-              for h in range(1, nHours + 1)), "*") """
-
-m.addConstrs((WindProd[h] * EfficiencyElec * PowerElec[h] >= (Demand[h])
-              for h in range(0, nHours)), "*")
 
 #### SET OBJECTIVE
-m.setObjective(((CapexElec*RElec + OpexElec)*CapacityElec 
-                + gp.quicksum(PapPriceWind*(1+ElecTax)*CapFactorWind[h]*CapacityWind for h in range(1,nHours))), GRB.MINIMIZE)
+m.setObjective(((CapexElec*RElec + OpexElec)*CapacityElec + (CapexStorage * RStorage + OpexStorage)*CapacityStorage
+                + gp.quicksum((PapPriceWind+ElecTax+TransmisFee)*CapFactorWind[h]*CapacityWind for h in range(0,nHours))
+                - gp.quicksum((GridPrice[h]+ElecTax+TransmisFee)*ElectricitySold[h] for h in range(0,nHours))
+                ), GRB.MINIMIZE)
 
 #### OPTIMIZE
 
