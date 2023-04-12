@@ -24,7 +24,7 @@ hours = range(0, nHours)  # 0 ... 8759
 
 # Electrolyzer
 CapacityElec = m.addVar(vtype = GRB.CONTINUOUS, name="CapasityElec")
-MultiplyCapElec = m.addVars(hours, name="MultiplyCapElec") # multiply helper variable
+PowerElec = m.addVars(hours, name="PowerElec") # multiply helper variable
 
 
 # Wind
@@ -107,17 +107,17 @@ m.addConstrs((CapFactorElec[i] >= (Pup - CapFactorElec[i - i]) for i in range(1,
               == (CapacitySolar * CapFactorSolar[h]) for h in range(0, nHours)), name="mulSolar") """
 m.addConstrs((WindProd[h]
               == (CapacityWind * CapFactorWind[h]) for h in range(0, nHours)), name="mulWind")
-m.addConstrs((MultiplyCapElec[h]
+m.addConstrs((PowerElec[h]
               == (CapacityElec * CapFactorElec[h]) for h in range(0, nHours)), name="mulElec")
 
 # Production has to meet demand
 
 # ei vielä auringolle dataa
 """ m.addConstrs(((SolarProd[h] + BaseProdSolar)
-              * EfficiencyElec * MultiplyCapElec[h] >= (Demand[h])
+              * EfficiencyElec * PowerElec[h] >= (Demand[h])
               for h in range(1, nHours + 1)), "*") """
 
-m.addConstrs((WindProd[h] * EfficiencyElec * MultiplyCapElec[h] >= (Demand[h])
+m.addConstrs((WindProd[h] * EfficiencyElec * PowerElec[h] >= (Demand[h])
               for h in range(0, nHours)), "*")
 
 #### SET OBJECTIVE
