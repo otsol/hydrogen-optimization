@@ -54,15 +54,15 @@ ElectrisityProd = m.addVar(vtype = GRB.CONTINUOUS, name="ElectrisityProd") # Cap
 #### ADD PARAMETERS
 
 # Demand 
-Demand = np.zeros(nHours)     # nhours 
+Demand = np.zeros(nHours)     # hourly demand
 Demand[0:nHours-20] = 15000      # January-June production
-Demand[nHours-10:nHours] = 15000      # January-June production
+Demand[nHours-10:nHours] = 15000     
 #Demand[5784:8760] = 15000   # July maintenance break and after full steam. KOMMENTTI POIS LOPULLISESSA
 
 # Electrolyzer
 CapexElec = 845     # € / kWe
 OpexElec = 17       # € / kWe
-EfficiencyElec = 64
+EfficiencyElec = 16 # kg H2 / MWHe     
 Pup = 0.50  # 50% muutos maksimikapasiteetista tunnissa
 ## Pdown = 0.70  # 70% muutos maksimikapasiteetista tunnisssa TÄMÄ POIS?
 RElec = 0.17
