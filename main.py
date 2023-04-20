@@ -102,16 +102,17 @@ CapexBattery = 378798
 OpexBattery = 7576
 ChargeEfficiency = 0.93
 ChargePowerPerc = 0.43  # Charge rate as a ratio of max capacity
+RBattery = 0.147
 
 # Storage
-CapexStorage = 80.90  # € / kg PÄIVITÄ KUN DATAA
-OpexStorage = 3.24     # € / kg PÄIVITÄ KUN DATAA
-RStorage = 0.36     # interest rate PÄIVITÄ KUN DATAA
+CapexStorage = 80.90  # € / kg 
+OpexStorage = 3.24     # € / kg 
+RStorage = 0.087     # interest rate PÄIVITÄ KUN DATAA
 
 # Grid
 GridPrice = []  # Tuntikohtainen kapasiteettikerroin
 for h in hours:
-    n = random.random()*80  # rando capacity factor between 0 ... 80
+    n = random.random()*60  # rando Grid price between 0 ... X
     GridPrice.append(n)
 
 
@@ -131,7 +132,7 @@ m.addConstrs((Demand[h]
 
 # There needs to be enough electricity for hydrogen production HUOM! LISÄTÄÄN ELECTRISITY SOLD JA AKUN MUUTOKSEN VAIKUTUS TÄHÄN
 m.addConstrs((HydrogenProd[h]
-              == (ElectricityProd[h] - ElectricitySold[h] + ElectricityStored[h - 1] - ElectricityStored[h]) * EfficiencyElec for h in range(0, nHours)), name="ElectricityForProdConstr")
+              == (ElectricityProd[h] - ElectricitySold[h] + ChargeEfficiency*(ElectricityStored[h-1] - ElectricityStored[h])) * EfficiencyElec for h in range(0, nHours)), name="ElectricityForProdConstr")
 
 # Hydrogen production cannot exceed capacity
 m.addConstrs((HydrogenProd[h]
@@ -146,7 +147,7 @@ m.addConstrs((HydrogenStored[h] <= CapacityStorage for h in range(1, nHours)), n
 m.addConstr((HydrogenStored[0] == 0), name="StorageInitConditionConstr")
 
 # Electricity balance
-m.addConstrs((ElectricityProd[h] - HydrogenProd[h] * (1 / EfficiencyElec) - ElectricitySold[h] == 0 for h in range(0, nHours)), name="ElectricityBalanceConstr")
+m.addConstrs((ElectricityProd[h] - HydrogenProd[h] * (1 / EfficiencyElec) - ElectricitySold[h] + (ElectricityStored[h-1] - ElectricityStored[h])*(1/ChargeEfficiency) == 0 for h in range(0, nHours)), name="ElectricityBalanceConstr")
 
 # Battery constraints
 m.addConstr((ElectricityStored[0] == 0), name="BatteryInitConditionConstr")  # Battery starts empty
@@ -158,7 +159,7 @@ m.addConstrs((ElectricityStored[h-1]-ElectricityStored[h] <= ChargePowerPerc*Cap
               == (CapacitySolar * CapFactorSolar[h]) for h in range(0, nHours)), name="mulSolar") """
 
 #### SET OBJECTIVE
-m.setObjective(((CapexElec*RElec + OpexElec)*CapacityElec + (CapexStorage * RStorage + OpexStorage)*CapacityStorage
+m.setObjective(((CapexElec*RElec + OpexElec)*CapacityElec + (CapexStorage * RStorage + OpexStorage)*CapacityStorage + (CapexBattery*RBattery + OpexBattery)*CapacityBattery
                 + gp.quicksum((PapPriceWind+ElecTax+TransmisFee)*CapFactorWind[h]*CapacityWind for h in range(0,nHours))
                 - gp.quicksum((GridPrice[h]+ElecTax+TransmisFee)*ElectricitySold[h] for h in range(0,nHours))
                 ), GRB.MINIMIZE)
