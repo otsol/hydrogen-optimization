@@ -10,7 +10,8 @@ import random
 import gurobipy as gp
 from gurobipy import GRB
 import sys
-import numpy as np       
+import numpy as np
+import matplotlib.pyplot as plt
 
 #### CREATE MODEL
 m = gp.Model("Hydrogen")
@@ -18,14 +19,15 @@ m = gp.Model("Hydrogen")
 # number of hours
 nHours = 100            # FINAL VERSION 8760
 # Set of days
-hours = range(0, nHours)  # 0 ... 8759
+# hours = range(0, nHours)  # 0 ... 8759
+hours = np.arange(0, nHours)
 
 #### ADD DECISION VARIABLES
 
 # Electrolyzer
 CapacityElec = m.addVar(vtype = GRB.CONTINUOUS, name="CapacityElec")
 #PowerElec = m.addVars(hours, name="PowerElec") # multiply helper variable POIS??
-HydrogenProd = m.addVars(hours, name="HydrogenProd") # Hourly hydrogen production (kg)
+HydrogenProd = m.addMVar(nHours, name="HydrogenProd") # Hourly hydrogen production (kg)
 
 # Wind
 CapacityWind = m.addVar(vtype = GRB.CONTINUOUS, name="CapacityWind") # Ostettu tuulen tuotantokapasiteetti (MW) PAP
@@ -41,17 +43,23 @@ BaseProdSolar = m.addVar(vtype = GRB.CONTINUOUS, name="BaseProdSolar") # Tuntiko
 SolarProd = m.addVars(hours, name="SolarProd") # multiply helper variable """
 
 # Battery
+CapacityBattery = m.addVar(vtype = GRB.CONTINUOUS, name="CapacityBattery")
+ElectricityStored = m.addMVar(nHours, name="ElectricityStored")  # Hourly battery level
+DepthOfDischarge = 0.8
+CapexBattery = 378798
+OpexBattery = 7576
+
 
 # Storage
 CapacityStorage = m.addVar(vtype = GRB.CONTINUOUS, name="CapacityStorage") # Hydrogen storage capacity (kg)
-HydrogenStored = m.addVars(hours, name="HydrogenStored") # Hourly storage level of hydrogen(kg)
+HydrogenStored = m.addMVar(nHours, name="HydrogenStored") # Hourly storage level of hydrogen(kg)
 
 # Grid
-ElectricitySold = m.addVars(hours, name="ElectricitySold") # Hourly sales of electricity
+ElectricitySold = m.addMVar(nHours, name="ElectricitySold") # Hourly sales of electricity
 
 # Supporting variables
 
-ElectrisityProd = m.addVars(hours, name="ElectrisityProd") # CapasityWind * CapFactorWind[h] + CapasitySolar * CapFactorSolar[h]
+ElectrisityProd = m.addMVar(nHours, name="ElectrisityProd") # CapasityWind * CapFactorWind[h] + CapasitySolar * CapFactorSolar[h]
 
 #### ADD PARAMETERS
 
@@ -93,9 +101,9 @@ for h in hours:
 # Battery
 
 # Storage
-CapexStorage = 1000  # € / kg PÄIVITÄ KUN DATAA
-OpexStorage = 20     # € / kg PÄIVITÄ KUN DATAA
-RStorage = 0.17     # interest rate PÄIVITÄ KUN DATAA
+CapexStorage = 80.90  # € / kg PÄIVITÄ KUN DATAA
+OpexStorage = 3.24     # € / kg PÄIVITÄ KUN DATAA
+RStorage = 0.36     # interest rate PÄIVITÄ KUN DATAA
 
 # Grid
 GridPrice = []  # Tuntikohtainen kapasiteettikerroin
@@ -112,30 +120,30 @@ m.addConstrs((WindProd[h]
 
 ## LISÄÄ SUMMAAN SolarProd[h]
 m.addConstrs((ElectrisityProd[h]
-              == (WindProd[h]) for h in range(0, nHours)), name="ElectisityProdConstr")
+              == (WindProd[h]) for h in range(0, nHours)), name="ElectricityProdConstr")
 
 # Production and change in storage needs to meet demand
 m.addConstrs((Demand[h]
               == (HydrogenProd[h] + HydrogenStored[h-1] - HydrogenStored[h]) for h in range(1, nHours)), name="DemandConstr")
 
-# There needs to be enough electrisity for hydrogen production HUOM! LISÄTÄÄN ELECTRISITY SOLD JA AKUN MUUTOKSEN VAIKUTUS TÄHÄN
+# There needs to be enough electricity for hydrogen production HUOM! LISÄTÄÄN ELECTRISITY SOLD JA AKUN MUUTOKSEN VAIKUTUS TÄHÄN
 m.addConstrs((HydrogenProd[h]
-              == (ElectrisityProd[h] - ElectricitySold[h])*EfficiencyElec for h in range(0, nHours)), name="ElectrisityForProdConstr")
+              == (ElectrisityProd[h] - ElectricitySold[h])*EfficiencyElec for h in range(0, nHours)), name="ElectricityForProdConstr")
 
 # Hydrogen production cannot exceed capacity
 m.addConstrs((HydrogenProd[h]
               <= CapacityElec * EfficiencyElec for h in range(0, nHours)), name="HydrogenProdCapacityConstr")
 
 # Constraints for Pchange 
-m.addConstrs((HydrogenProd[h] - HydrogenProd[h-1] <= (Pchange * CapacityElec * EfficiencyElec) for i in range(1, nHours)), name="PupConstr")
-m.addConstrs((HydrogenProd[h-1] - HydrogenProd[h] <= (Pchange * CapacityElec * EfficiencyElec) for i in range(1, nHours)), name="PdownConstr")
+m.addConstrs((HydrogenProd[h] - HydrogenProd[h-1] <= (Pchange * CapacityElec * EfficiencyElec) for h in range(1, nHours)), name="PupConstr")
+m.addConstrs((HydrogenProd[h-1] - HydrogenProd[h] <= (Pchange * CapacityElec * EfficiencyElec) for h in range(1, nHours)), name="PdownConstr")
 
 # Hydrogen storage cannot exceed capacity. Initial condition = 0
 m.addConstrs((HydrogenStored[h] <= CapacityStorage for h in range(1, nHours)), name="CapasityStorageConstr")
-m.addConstr((HydrogenStored[0] == 0 ), name="StorageInitConditionConstr")
+m.addConstr((HydrogenStored[0] == 0), name="StorageInitConditionConstr")
 
-# Electrisity balance
-m.addConstrs((ElectrisityProd[h] - HydrogenProd[h]*(1/EfficiencyElec) - ElectricitySold[h] == 0 for i in range(0, nHours)), name="ElectrisityBalanceConstr")
+# Electricity balance
+m.addConstrs((ElectrisityProd[h] - HydrogenProd[h]*(1/EfficiencyElec) - ElectricitySold[h] == 0 for h in range(0, nHours)), name="ElectricityBalanceConstr")
 
 
 """ m.addConstrs((SolarProd[h]
@@ -153,6 +161,23 @@ m.setObjective(((CapexElec*RElec + OpexElec)*CapacityElec + (CapexStorage * RSto
 m.Params.NonConvex = 2
 m.optimize()
 # m.printAttr("C")
-for v in m.getVars ():
-    print ('%s %g' % ( v . VarName , v . X ))
-print ('Obj : %g' % m. ObjVal )
+# plt.figure(1)
+for index, v in enumerate(m.getVars()):
+    # plt.scatter(index, v.X)
+    # plt.title(v.VarName)
+    print('%s %g' % (v.VarName, v.X))
+print('Obj : %g' % m.ObjVal)
+plt.figure(2)
+if m.SolCount > 0:  # avoid attribute error if no feasible point is available
+  res1 = HydrogenStored.X
+  res2 = HydrogenProd.X
+  res3 = CapacityStorage.X
+plt.plot(res1, color='orange', label='Storage level')
+plt.axhline(res3, color='orange', ls='--', label='Max Storage')
+plt.plot(res2, color='blue', label='Hydrogen production')
+plt.plot(Demand, color='blue', ls='--', label='Demand')
+plt.legend(loc='best')
+
+
+
+plt.show()
