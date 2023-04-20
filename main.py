@@ -45,9 +45,7 @@ SolarProd = m.addVars(hours, name="SolarProd") # multiply helper variable """
 # Battery
 CapacityBattery = m.addVar(vtype = GRB.CONTINUOUS, name="CapacityBattery")
 ElectricityStored = m.addMVar(nHours, name="ElectricityStored")  # Hourly battery level
-DepthOfDischarge = 0.8
-CapexBattery = 378798
-OpexBattery = 7576
+
 
 
 # Storage
@@ -59,7 +57,7 @@ ElectricitySold = m.addMVar(nHours, name="ElectricitySold") # Hourly sales of el
 
 # Supporting variables
 
-ElectrisityProd = m.addMVar(nHours, name="ElectrisityProd") # CapasityWind * CapFactorWind[h] + CapasitySolar * CapFactorSolar[h]
+ElectricityProd = m.addMVar(nHours, name="ElectrisityProd") # CapasityWind * CapFactorWind[h] + CapasitySolar * CapFactorSolar[h]
 
 #### ADD PARAMETERS
 
@@ -99,6 +97,11 @@ for h in hours:
     CapFactorSolar.append(n) """
 
 # Battery
+DepthOfDischarge = 0.8
+CapexBattery = 378798
+OpexBattery = 7576
+ChargeEfficiency = 0.93
+ChargePowerPerc = 0.43  # Charge rate as a ratio of max capacity
 
 # Storage
 CapexStorage = 80.90  # € / kg PÄIVITÄ KUN DATAA
@@ -119,7 +122,7 @@ m.addConstrs((WindProd[h]
               == (CapacityWind * CapFactorWind[h]) for h in range(0, nHours)), name="mulWind")
 
 ## LISÄÄ SUMMAAN SolarProd[h]
-m.addConstrs((ElectrisityProd[h]
+m.addConstrs((ElectricityProd[h]
               == (WindProd[h]) for h in range(0, nHours)), name="ElectricityProdConstr")
 
 # Production and change in storage needs to meet demand
@@ -128,7 +131,7 @@ m.addConstrs((Demand[h]
 
 # There needs to be enough electricity for hydrogen production HUOM! LISÄTÄÄN ELECTRISITY SOLD JA AKUN MUUTOKSEN VAIKUTUS TÄHÄN
 m.addConstrs((HydrogenProd[h]
-              == (ElectrisityProd[h] - ElectricitySold[h])*EfficiencyElec for h in range(0, nHours)), name="ElectricityForProdConstr")
+              == (ElectricityProd[h] - ElectricitySold[h] + ElectricityStored[h - 1] - ElectricityStored[h]) * EfficiencyElec for h in range(0, nHours)), name="ElectricityForProdConstr")
 
 # Hydrogen production cannot exceed capacity
 m.addConstrs((HydrogenProd[h]
@@ -139,12 +142,17 @@ m.addConstrs((HydrogenProd[h] - HydrogenProd[h-1] <= (Pchange * CapacityElec * E
 m.addConstrs((HydrogenProd[h-1] - HydrogenProd[h] <= (Pchange * CapacityElec * EfficiencyElec) for h in range(1, nHours)), name="PdownConstr")
 
 # Hydrogen storage cannot exceed capacity. Initial condition = 0
-m.addConstrs((HydrogenStored[h] <= CapacityStorage for h in range(1, nHours)), name="CapasityStorageConstr")
+m.addConstrs((HydrogenStored[h] <= CapacityStorage for h in range(1, nHours)), name="CapacityStorageConstr")
 m.addConstr((HydrogenStored[0] == 0), name="StorageInitConditionConstr")
 
 # Electricity balance
-m.addConstrs((ElectrisityProd[h] - HydrogenProd[h]*(1/EfficiencyElec) - ElectricitySold[h] == 0 for h in range(0, nHours)), name="ElectricityBalanceConstr")
+m.addConstrs((ElectricityProd[h] - HydrogenProd[h] * (1 / EfficiencyElec) - ElectricitySold[h] == 0 for h in range(0, nHours)), name="ElectricityBalanceConstr")
 
+# Battery constraints
+m.addConstr((ElectricityStored[0] == 0), name="BatteryInitConditionConstr")  # Battery starts empty
+m.addConstrs((ElectricityStored[h] <= CapacityBattery*DepthOfDischarge for h in range(0, nHours)), name="CapacityBatteryConstr")  # Max battery level 80%
+m.addConstrs((ElectricityStored[h]-ElectricityStored[h-1] <= ChargePowerPerc*CapacityBattery*ChargeEfficiency for h in range(1, nHours)), name="BchangeConstr")
+m.addConstrs((ElectricityStored[h-1]-ElectricityStored[h] <= ChargePowerPerc*CapacityBattery*ChargeEfficiency for h in range(1, nHours)), name="BchangeConstr")
 
 """ m.addConstrs((SolarProd[h]
               == (CapacitySolar * CapFactorSolar[h]) for h in range(0, nHours)), name="mulSolar") """
@@ -167,17 +175,30 @@ for index, v in enumerate(m.getVars()):
     # plt.title(v.VarName)
     print('%s %g' % (v.VarName, v.X))
 print('Obj : %g' % m.ObjVal)
-plt.figure(2)
-if m.SolCount > 0:  # avoid attribute error if no feasible point is available
-  res1 = HydrogenStored.X
-  res2 = HydrogenProd.X
-  res3 = CapacityStorage.X
-plt.plot(res1, color='orange', label='Storage level')
-plt.axhline(res3, color='orange', ls='--', label='Max Storage')
-plt.plot(res2, color='blue', label='Hydrogen production')
-plt.plot(Demand, color='blue', ls='--', label='Demand')
-plt.legend(loc='best')
 
+if m.SolCount > 0:  # avoid attribute error if no feasible point is available
+    plt.figure(2)
+    res1 = HydrogenStored.X
+    res2 = HydrogenProd.X
+    res3 = CapacityStorage.X
+    plt.plot(res1, color='orange', label='Storage level')
+    plt.axhline(res3, color='orange', ls='--', label='Max Storage')
+    plt.plot(res2, color='blue', label='Hydrogen production')
+    plt.plot(Demand, color='blue', ls='--', label='Demand')
+    plt.legend(loc='best')
+
+    plt.figure(3)
+    res1 = ElectricityStored.X
+    res2 = ElectricityProd.X
+    res3 = ElectricitySold.X
+    res4 = res2 - res1 - res3  # Electricity used
+    res5 = CapacityBattery.X
+    plt.plot(res1, color='orange', label='Battery level')
+    plt.axhline(res5, color='orange', ls='--', label='Max battery capacity')
+    plt.plot(res2, color='blue', label='Electricity production')
+    plt.plot(res4, color='green', label='Electricity used')
+    plt.plot(res3, color='red', label='Electricity sold')
+    plt.legend(loc='best')
 
 
 plt.show()
