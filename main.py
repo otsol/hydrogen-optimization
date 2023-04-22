@@ -12,12 +12,50 @@ from gurobipy import GRB
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
+
+#### DOWNLOAD DATA
+## Wind download
+df = pd.read_excel('wind_FI.xlsx')
+
+# Extract the data from column E
+windRaw = df.iloc[:, 4]
+# Remove the header row
+windRaw = windRaw[3000:4000] # FINAL DELETE 100
+windRaw = windRaw.astype(float)
+print(len(windRaw))
+# Convert the data to a Python array
+windRaw = windRaw.to_numpy()
+
+## Solar download
+df = pd.read_excel('solar_FI.xlsx')
+
+# Extract the data from column G
+solarRaw = df.iloc[:, 6]
+# Remove the header row
+solarRaw = solarRaw[3000:4000] # FINAL DELETE 100
+solarRaw = solarRaw.astype(float)
+print(len(solarRaw))
+# Convert the data to a Python array
+solarRaw = solarRaw.to_numpy()
+
+# Read the xlsx file
+df = pd.read_excel('electricity_price_FI.xlsx')
+
+# Extract the data from column E
+priceRaw = df.iloc[:, 4]
+# Remove the header row
+priceRaw = priceRaw[3000:4000] # FINAL DELETE 100
+priceRaw = priceRaw.astype(float)
+print(len(priceRaw))
+# Convert the data to a Python array
+priceRaw = priceRaw.to_numpy()
 
 #### CREATE MODEL
 m = gp.Model("Hydrogen")
 
 # number of hours
-nHours = 100            # FINAL VERSION 8760
+nHours = 1000          # FINAL VERSION 8760
 # Set of days
 # hours = range(0, nHours)  # 0 ... 8759
 hours = np.arange(0, nHours)
@@ -55,33 +93,30 @@ ElectricityProd = m.addMVar(nHours, name="ElectrisityProd") # CapasityWind * Cap
 
 # Demand 
 Demand = np.zeros(nHours)     # hourly demand
-Demand[0:nHours-20] = 2000      # January-June production
-Demand[nHours-10:nHours] = 2000     
-#Demand[5784:8760] = 2000   # July maintenance break and after full steam. KOMMENTTI POIS LOPULLISESSA
+Demand[0:nHours-20] = 2000      # January-June production  
+Demand[nHours-10:nHours] = 2000   # July maintenance break and after full steam. KOMMENTTI POIS LOPULLISESSA
 
 # Electrolyzer
-CapexElec = 850000     # € / MWe 
-OpexElec = 17000       # € / MWe
-EfficiencyElec = 16 # kg H2 / MWHe     
+CapexElec = 845000     # € / MWe 
+OpexElec = 16900      # € / MWe
+EfficiencyElec = 15.6 # kg H2 / MWHe     
 Pchange = 0.50  # 50% muutos maksimikapasiteetista tunnissa
-RElec = 0.17
+RElec = 0.171
 
 # Wind
-PapPriceWind = 30   # PPA pay-as-produced hinta (€ / MWhh)
+PapPriceWind = 52  # PPA pay-as-produced hinta (€ / MWhh)
+print(PapPriceWind)
 ElecTax = 0.63     # sähkönvero (€ / MWh)
-TransmisFee = 4.0   # sähkönsiirtomaksu (€ / MWh) PÄIVITÄ KUN DATAA
-
+TransmisFee = 4.0   # sähkönsiirtomaksu (€ / MWh) 
 CapFactorWind = []  # Tuntikohtainen kapasiteettikerroin
-for h in hours:
-    n = random.random()  # rando capacity factor between 0 ... 1
-    CapFactorWind.append(n)
+for row in windRaw:
+    CapFactorWind.append(row)
 
 # Solar
-PapPriceSolar = 50  # PPA pay-as-produced hinta (€ / MWh) PITÄÄ PÄIVITTÄÄ
+PapPriceSolar = 38  # PPA pay-as-produced hinta (€ / MWh) 
 CapFactorSolar = []  # Tuntikohtainen kapasiteettikerroin
-for h in hours:
-    n = random.random()  # rando capacity factor between 0 ... 1
-    CapFactorSolar.append(n)
+for row in solarRaw:
+    CapFactorSolar.append(row)
 
 # Battery
 DepthOfDischarge = 0.8
@@ -98,9 +133,8 @@ RStorage = 0.087     # interest rate PÄIVITÄ KUN DATAA
 
 # Grid
 GridPrice = []  # Tuntikohtainen kapasiteettikerroin
-for h in hours:
-    n = random.random()*30  # rando Grid price between 0 ... X
-    GridPrice.append(n)
+for row in priceRaw:
+    GridPrice.append(row)
 
 
 #### ADD CONSTRAINTS
@@ -115,11 +149,20 @@ m.addConstrs((SolarProd[h]
 m.addConstrs((ElectricityProd[h]
               == (WindProd[h] + SolarProd[h])  for h in range(0, nHours)), name="ElectricityProdConstr")
 
+# Real world puts limitation on puchased capacity
+m.addConstr(CapacityWind <= 1000, name="WindCapacityConstr")
+
+m.addConstr(CapacitySolar <= 1000, name="SolarCapacityConstr")
+
 # Production and change in storage needs to meet demand
 m.addConstrs((Demand[h]
               == (HydrogenProd[h] + HydrogenStored[h-1] - HydrogenStored[h]) for h in range(1, nHours)), name="DemandConstr")
 
-# There needs to be enough electricity for hydrogen production HUOM! LISÄTÄÄN ELECTRISITY SOLD JA AKUN MUUTOKSEN VAIKUTUS TÄHÄN
+# July maintenance break PITÄÄ ANTAA VÄHINTÄÄN PARI TUNTIA AIKAA AJAA TAKAISIN TUOTANTO YLÖS!!
+m.addConstrs((HydrogenProd[h]
+              == 0 for h in range(nHours-20, nHours-13)), name="MaintBreakConstr") 
+
+# There needs to be enough electricity for hydrogen production
 m.addConstrs((HydrogenProd[h]
               == (ElectricityProd[h] - ElectricitySold[h] + ChargeEfficiency*(ElectricityStored[h-1] - ElectricityStored[h])) * EfficiencyElec for h in range(0, nHours)), name="ElectricityForProdConstr")
 
@@ -145,8 +188,10 @@ m.addConstrs((ElectricityStored[h]-ElectricityStored[h-1] <= ChargePowerPerc*Cap
 m.addConstrs((ElectricityStored[h-1]-ElectricityStored[h] <= ChargePowerPerc*CapacityBattery*ChargeEfficiency for h in range(1, nHours)), name="BchangeConstr")
 
 #### SET OBJECTIVE
-m.setObjective(((CapexElec*RElec + OpexElec)*CapacityElec + (CapexStorage * RStorage + OpexStorage)*CapacityStorage + (CapexBattery*RBattery + OpexBattery)*CapacityBattery
-                + gp.quicksum((PapPriceWind+ElecTax+TransmisFee)*CapFactorWind[h]*CapacityWind for h in range(0,nHours))
+m.setObjective(((CapexElec*RElec + OpexElec)*CapacityElec 
+                + (CapexStorage * RStorage + OpexStorage)*CapacityStorage 
+                + (CapexBattery*RBattery + OpexBattery)*CapacityBattery  
+                + gp.quicksum((PapPriceWind+ElecTax+TransmisFee)*CapFactorWind[h]*CapacityWind for h in range(0,nHours)) 
                 + gp.quicksum((PapPriceSolar+ElecTax+TransmisFee)*CapFactorSolar[h]*CapacitySolar for h in range(0,nHours))
                 - gp.quicksum((GridPrice[h]+ElecTax+TransmisFee)*ElectricitySold[h] for h in range(0,nHours))
                 ), GRB.MINIMIZE)
