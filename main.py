@@ -177,9 +177,6 @@ m.addConstrs((HydrogenProd[h-1] - HydrogenProd[h] <= (Pchange * CapacityElec * E
 m.addConstrs((HydrogenStored[h] <= CapacityStorage for h in range(1, nHours)), name="CapacityStorageConstr")
 m.addConstr((HydrogenStored[0] == 0), name="StorageInitConditionConstr")
 
-# Electricity balance
-m.addConstrs((ElectricityProd[h] - HydrogenProd[h] * (1 / EfficiencyElec) - ElectricitySold[h] + (ElectricityStored[h-1] - ElectricityStored[h])*(1/ChargeEfficiency) == 0 for h in range(0, nHours)), name="ElectricityBalanceConstr")
-
 # Battery constraints
 m.addConstr((ElectricityStored[0] == 0), name="BatteryInitConditionConstr")  # Battery starts empty
 m.addConstrs((ElectricityStored[h] <= CapacityBattery*DepthOfDischarge for h in range(0, nHours)), name="CapacityBatteryConstr")  # Max battery level 80%
