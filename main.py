@@ -13,6 +13,7 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import csv
 
 #### DOWNLOAD DATA
 ## Wind download
@@ -21,9 +22,8 @@ df = pd.read_excel('wind_FI.xlsx')
 # Extract the data from column E
 windRaw = df.iloc[:, 4]
 # Remove the header row
-windRaw = windRaw[3000:4000] # FINAL DELETE 100
+windRaw = windRaw[0:] 
 windRaw = windRaw.astype(float)
-print(len(windRaw))
 # Convert the data to a Python array
 windRaw = windRaw.to_numpy()
 
@@ -33,9 +33,8 @@ df = pd.read_excel('solar_FI.xlsx')
 # Extract the data from column G
 solarRaw = df.iloc[:, 6]
 # Remove the header row
-solarRaw = solarRaw[3000:4000] # FINAL DELETE 100
+solarRaw = solarRaw[0:] 
 solarRaw = solarRaw.astype(float)
-print(len(solarRaw))
 # Convert the data to a Python array
 solarRaw = solarRaw.to_numpy()
 
@@ -45,17 +44,16 @@ df = pd.read_excel('electricity_price_FI.xlsx')
 # Extract the data from column E
 priceRaw = df.iloc[:, 4]
 # Remove the header row
-priceRaw = priceRaw[3000:4000] # FINAL DELETE 100
+priceRaw = priceRaw[0:] 
 priceRaw = priceRaw.astype(float)
-print(len(priceRaw))
 # Convert the data to a Python array
 priceRaw = priceRaw.to_numpy()
 
 #### CREATE MODEL
-m = gp.Model("Hydrogen")
+m = gp.Model("PAP-FI")
 
 # number of hours
-nHours = 1000          # FINAL VERSION 8760
+nHours = 8760          # FINAL VERSION 8760
 # Set of days
 # hours = range(0, nHours)  # 0 ... 8759
 hours = np.arange(0, nHours)
@@ -93,19 +91,18 @@ ElectricityProd = m.addMVar(nHours, name="ElectrisityProd") # CapasityWind * Cap
 
 # Demand 
 Demand = np.zeros(nHours)     # hourly demand
-Demand[0:nHours-20] = 2000      # January-June production  
-Demand[nHours-10:nHours] = 2000   # July maintenance break and after full steam. KOMMENTTI POIS LOPULLISESSA
+Demand[0:5041] = 2000      # January-June production  
+Demand[5785:nHours] = 2000   # July maintenance break and after full steam. 
 
 # Electrolyzer
 CapexElec = 845000     # € / MWe 
 OpexElec = 16900      # € / MWe
 EfficiencyElec = 15.6 # kg H2 / MWHe     
 Pchange = 0.50  # 50% muutos maksimikapasiteetista tunnissa
-RElec = 0.171
+RElec = 0.171   # annuiteettikerroin
 
 # Wind
-PapPriceWind = 52  # PPA pay-as-produced hinta (€ / MWhh)
-print(PapPriceWind)
+PapPriceWind = 52  # PPA pay-as-produced hinta (€ / MWhh) 
 ElecTax = 0.63     # sähkönvero (€ / MWh)
 TransmisFee = 4.0   # sähkönsiirtomaksu (€ / MWh) 
 CapFactorWind = []  # Tuntikohtainen kapasiteettikerroin
@@ -124,18 +121,20 @@ CapexBattery = 378798
 OpexBattery = 7576
 ChargeEfficiency = 0.93
 ChargePowerPerc = 0.43  # Charge rate as a ratio of max capacity
-RBattery = 0.147
+RBattery = 0.147        # annuiteettikerroin
 
 # Storage
 CapexStorage = 80.90  # € / kg 
 OpexStorage = 3.24     # € / kg 
-RStorage = 0.087     # interest rate PÄIVITÄ KUN DATAA
+RStorage = 0.092     # annuiteettikerroin
 
 # Grid
 GridPrice = []  # Tuntikohtainen kapasiteettikerroin
 for row in priceRaw:
     GridPrice.append(row)
 
+# WACC
+Wacc = 0.078
 
 #### ADD CONSTRAINTS
 
@@ -160,7 +159,7 @@ m.addConstrs((Demand[h]
 
 # July maintenance break PITÄÄ ANTAA VÄHINTÄÄN PARI TUNTIA AIKAA AJAA TAKAISIN TUOTANTO YLÖS!!
 m.addConstrs((HydrogenProd[h]
-              == 0 for h in range(nHours-20, nHours-13)), name="MaintBreakConstr") 
+              == 0 for h in range(5041, 5782)), name="MaintBreakConstr") 
 
 # There needs to be enough electricity for hydrogen production
 m.addConstrs((HydrogenProd[h]
@@ -190,7 +189,8 @@ m.addConstrs((ElectricityStored[h-1]-ElectricityStored[h] <= ChargePowerPerc*Cap
 #### SET OBJECTIVE
 m.setObjective(((CapexElec*RElec + OpexElec)*CapacityElec 
                 + (CapexStorage * RStorage + OpexStorage)*CapacityStorage 
-                + (CapexBattery*RBattery + OpexBattery)*CapacityBattery  
+                + (CapexBattery*RBattery + OpexBattery)*CapacityBattery
+                + (CapacitySolar*PapPriceSolar + CapacityWind*PapPriceWind)*7*24*Wacc  
                 + gp.quicksum((PapPriceWind+ElecTax+TransmisFee)*CapFactorWind[h]*CapacityWind for h in range(0,nHours)) 
                 + gp.quicksum((PapPriceSolar+ElecTax+TransmisFee)*CapFactorSolar[h]*CapacitySolar for h in range(0,nHours))
                 - gp.quicksum((GridPrice[h]+ElecTax+TransmisFee)*ElectricitySold[h] for h in range(0,nHours))
@@ -211,6 +211,8 @@ for index, v in enumerate(m.getVars()):
     # plt.title(v.VarName)
     print('%s %g' % (v.VarName, v.X))
 print('Obj : %g' % m.ObjVal)
+
+
 
 if m.SolCount > 0:  # avoid attribute error if no feasible point is available
     plt.figure(2)
@@ -242,3 +244,18 @@ if m.SolCount > 0:  # avoid attribute error if no feasible point is available
 
 
 plt.show()
+
+#### EXPORT TO XLSX
+with open('output.csv', mode='w', newline='') as output_file:
+    # Create a CSV writer
+    writer = csv.writer(output_file)
+
+    # Write the header row
+    writer.writerow(['Variable', 'Value'])
+
+    # Write the variable names and values to the CSV file
+    for v in m.getVars():
+        writer.writerow([v.varName, v.x])
+
+    # Write the objective value to the CSV file
+    writer.writerow(['Objective', m.objVal])
