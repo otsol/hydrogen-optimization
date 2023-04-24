@@ -15,14 +15,17 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import csv
 
+#### SELECT COUNTRY AND PAP PRICE
+country = "DE" # FI, SE or DE
+price = "20" # 22 or 20. 22 = 2022 Q4 PAP prices and 20 = 2020 Q4 PAP prices
 
 #### CREATE MODEL
-m = gp.Model("BASE-FI")
+m = gp.Model("BASE")
 
 # number of hours
-nHours = 8760          # FINAL VERSION 8760
+nHours = 8784          # FINAL VERSION 8784
 # Set of days
-# hours = range(0, nHours)  # 0 ... 8759
+# hours = range(0, nHours)  # 0 ... 8783
 hours = np.arange(0, nHours)
 
 #### ADD DECISION VARIABLES
@@ -44,15 +47,14 @@ CapacityStorage = m.addVar(vtype = GRB.CONTINUOUS, name="CapacityStorage") # Hyd
 HydrogenStored = m.addMVar(nHours, name="HydrogenStored") # Hourly storage level of hydrogen(kg)
 
 # Supporting variables
-
 ElectricityProd = m.addMVar(nHours, name="ElectrisityProd") # CapasityWind * CapFactorWind[h] + CapasitySolar * CapFactorSolar[h]
 
 #### ADD PARAMETERS
 
 # Demand 
 Demand = np.zeros(nHours)     # hourly demand
-Demand[0:5041] = 2000      # January-June production  
-Demand[5785:nHours] = 2000   # July maintenance break and after full steam. 
+Demand[0:5065] = 2000      # January-June production  
+Demand[5809:nHours] = 2000   # July maintenance break and after full steam. 
 
 # Electrolyzer
 CapexElec = 845000     # € / MWe 
@@ -62,23 +64,60 @@ Pchange = 0.50  # 50% muutos maksimikapasiteetista tunnissa
 RElec = 0.171   # annuiteettikerroin
 
 # Wind
-BasePriceWind = 54.6  # PPA pay-as-produced hinta (€ / MWhh) 
-ElecTax = 0.63     # sähkönvero (€ / MWh)
-TransmisFee = 4.0   # sähkönsiirtomaksu (€ / MWh) 
+if country == "FI":
+    if price == "22":
+        BasePriceWind = 54.6  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        BasePriceWind = 31.5
+    ElecTax = 0.63     # sähkönvero (€ / MWh)
+    TransmisFee = 4.0   # sähkönsiirtomaksu (€ / MWh)  
+elif country == "SE":
+    if price == "22":
+        BasePriceWind = 72.45  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        BasePriceWind = 52    
+    ElecTax = 37.5     # sähkönvero (€ / MWh)
+    TransmisFee = 0.91   # sähkönsiirtomaksu (€ / MWh)  
+else:
+    if price == "22":
+        BasePriceWind = 67.2  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        BasePriceWind = 57.8       
+    ElecTax = 0.5     # sähkönvero (€ / MWh)
+    TransmisFee = 12   # sähkönsiirtomaksu (€ / MWh)  
+
 CapFactorWind = np.zeros(nHours)  # Tuntikohtainen kapasiteettikerroin
-CapFactorWind[0:5041] = 1
-CapFactorWind[5781:nHours] = 1
+CapFactorWind[0:5065] = 1
+CapFactorWind[5805:nHours] = 1
 
 # Solar
-BasePriceSolar = 39.9  # PPA pay-as-produced hinta (€ / MWh) 
+if country == "FI":
+    if price == "22":
+        BasePriceSolar = 39.9  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        BasePriceSolar = 36.8           
+elif country == "SE":
+    if price == "22":
+        BasePriceSolar = 57.6  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        BasePriceSolar = 36.8 
+else:
+    if price == "22":
+        BasePriceSolar = 93.45  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        BasePriceSolar = 51.5 
+
 CapFactorSolar = np.zeros(nHours)  # Tuntikohtainen kapasiteettikerroin
-CapFactorSolar[0:5041] = 1
-CapFactorSolar[5781:nHours] = 1
+CapFactorSolar[0:5065] = 1
+CapFactorSolar[5805:nHours] = 1
 
 # Storage
 CapexStorage = 80.90  # € / kg 
 OpexStorage = 3.24     # € / kg 
 RStorage = 0.092     # annuiteettikerroin
+
+# Water
+WaterCost = 0.07 # € / kg H2
 
 #### ADD CONSTRAINTS
 
@@ -115,7 +154,7 @@ m.addConstrs((HydrogenProd[h-1] - HydrogenProd[h] <= (Pchange * CapacityElec * E
 
 # Hydrogen storage cannot exceed capacity. Initial condition = 0
 m.addConstrs((HydrogenStored[h] <= CapacityStorage for h in range(1, nHours)), name="CapacityStorageConstr")
-m.addConstr((HydrogenStored[0] == 0), name="StorageInitConditionConstr")
+m.addConstr((HydrogenStored[0] == 4000), name="StorageInitConditionConstr")
 
 
 #### SET OBJECTIVE
@@ -123,6 +162,7 @@ m.setObjective(((CapexElec*RElec + OpexElec)*CapacityElec
                 + (CapexStorage * RStorage + OpexStorage)*CapacityStorage 
                 + gp.quicksum((BasePriceWind+ElecTax+TransmisFee)*CapFactorWind[h]*CapacityWind for h in range(0,nHours)) 
                 + gp.quicksum((BasePriceSolar+ElecTax+TransmisFee)*CapFactorSolar[h]*CapacitySolar for h in range(0,nHours))
+                + gp.quicksum(HydrogenProd[h]*WaterCost for h in range(0,nHours))
                 ), GRB.MINIMIZE)
 
 #### OPTIMIZE
