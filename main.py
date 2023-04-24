@@ -15,8 +15,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import csv
 
-#### SELECT COUNTRY
-country = "FI" # FI, SE or DE
+#### SELECT COUNTRY AND PAP PRICE
+country = "SE" # FI, SE or DE
+price = "20" # 22 or 20. 22 = 2022 Q4 PAP prices and 20 = 2020 Q4 PAP prices
 
 #### DOWNLOAD DATA
 ## Wind download
@@ -114,7 +115,7 @@ ElectricityProd = m.addMVar(nHours, name="ElectrisityProd") # CapasityWind * Cap
 
 # Demand 
 Demand = np.zeros(nHours)     # hourly demand
-Demand[0:5065] = 2000      # January-June production  
+Demand[168:5065] = 2000      # January-June production. First week no demand (otherwise too big constraint on wind / solar capacity)
 Demand[5809:nHours] = 2000   # July maintenance break and after full steam. 
 
 # Electrolyzer
@@ -126,15 +127,24 @@ RElec = 0.171   # annuiteettikerroin
 
 # Wind
 if country == "FI":
-    PapPriceWind = 52  # PPA pay-as-produced hinta (€ / MWhh)
+    if price == "22":
+        PapPriceWind = 52  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        PapPriceWind = 30
     ElecTax = 0.63     # sähkönvero (€ / MWh)
     TransmisFee = 4.0   # sähkönsiirtomaksu (€ / MWh)  
 elif country == "SE":
-    PapPriceWind = 69  # PPA pay-as-produced hinta (€ / MWhh)
+    if price == "22":
+        PapPriceWind = 69  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        PapPriceWind = 50    
     ElecTax = 37.5     # sähkönvero (€ / MWh)
     TransmisFee = 0.91   # sähkönsiirtomaksu (€ / MWh)  
 else:
-    PapPriceWind = 64  # PPA pay-as-produced hinta (€ / MWhh)
+    if price == "22":
+        PapPriceWind = 64  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        PapPriceWind = 55       
     ElecTax = 0.5     # sähkönvero (€ / MWh)
     TransmisFee = 12   # sähkönsiirtomaksu (€ / MWh)    
 
@@ -144,11 +154,20 @@ for row in windRaw:
 
 # Solar
 if country == "FI":
-    PapPriceSolar = 38  # PPA pay-as-produced hinta (€ / MWh) 
+    if price == "22":
+        PapPriceSolar = 38  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        PapPriceSolar = 35           
 elif country == "SE":
-    PapPriceSolar = 54  # PPA pay-as-produced hinta (€ / MWh)
+    if price == "22":
+        PapPriceSolar = 54  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        PapPriceSolar = 35 
 else:
-    PapPriceSolar = 89  # PPA pay-as-produced hinta (€ / MWh) 
+    if price == "22":
+        PapPriceSolar = 89  # PPA pay-as-produced hinta (€ / MWhh)
+    else:
+        PapPriceSolar = 49 
 
 CapFactorSolar = []  # Tuntikohtainen kapasiteettikerroin
 for row in solarRaw:
@@ -174,6 +193,9 @@ for row in priceRaw:
 
 # WACC
 Wacc = 0.078
+
+# Water
+WaterCost = 0.07 # € / kg H2
 
 #### ADD CONSTRAINTS
 
@@ -218,7 +240,7 @@ m.addConstrs((HydrogenProd[h-1] - HydrogenProd[h] <= (Pchange * CapacityElec * E
 
 # Hydrogen storage cannot exceed capacity. Initial condition = 0
 m.addConstrs((HydrogenStored[h] <= CapacityStorage for h in range(1, nHours)), name="CapacityStorageConstr")
-m.addConstr((HydrogenStored[0] == 24000), name="StorageInitConditionConstr")
+m.addConstr((HydrogenStored[0] == 0), name="StorageInitConditionConstr")
 
 # Battery constraints
 m.addConstr((ElectricityStored[0] == 0), name="BatteryInitConditionConstr")  # Battery starts empty
@@ -234,6 +256,7 @@ if country == "SE":
                     + (CapacitySolar*PapPriceSolar + CapacityWind*PapPriceWind)*7*24*Wacc  
                     + gp.quicksum((PapPriceWind+ElecTax+TransmisFee)*CapFactorWind[h]*CapacityWind for h in range(0,nHours)) 
                     + gp.quicksum((PapPriceSolar+ElecTax+TransmisFee)*CapFactorSolar[h]*CapacitySolar for h in range(0,nHours))
+                    + gp.quicksum(HydrogenProd[h]*WaterCost for h in range(0,nHours))
                     - gp.quicksum((GridPrice[h]+ElecTax+TransmisFee)*ElectricitySold[h] for h in range(0,nHours))
                     + gp.quicksum((GridPrice[h]+ElecTax+TransmisFee)*ElectricityBought[h] for h in range(0,nHours)) 
                     ), GRB.MINIMIZE)
@@ -244,6 +267,7 @@ else:
                     + (CapacitySolar*PapPriceSolar + CapacityWind*PapPriceWind)*7*24*Wacc  
                     + gp.quicksum((PapPriceWind+ElecTax+TransmisFee)*CapFactorWind[h]*CapacityWind for h in range(0,nHours)) 
                     + gp.quicksum((PapPriceSolar+ElecTax+TransmisFee)*CapFactorSolar[h]*CapacitySolar for h in range(0,nHours))
+                    + gp.quicksum(HydrogenProd[h]*WaterCost for h in range(0,nHours))
                     - gp.quicksum((GridPrice[h]+ElecTax+TransmisFee)*ElectricitySold[h] for h in range(0,nHours))
                     ), GRB.MINIMIZE)
 
