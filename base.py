@@ -18,6 +18,7 @@ import csv
 #### SELECT COUNTRY AND PAP PRICE
 country = "DE" # FI, SE or DE
 price = "20" # 22 or 20. 22 = 2022 Q4 PAP prices and 20 = 2020 Q4 PAP prices
+print(country + " " + price)
 
 #### CREATE MODEL
 m = gp.Model("BASE")
@@ -111,6 +112,7 @@ CapFactorSolar = np.zeros(nHours)  # Tuntikohtainen kapasiteettikerroin
 CapFactorSolar[0:5065] = 1
 CapFactorSolar[5805:nHours] = 1
 
+
 # Storage
 CapexStorage = 80.90  # € / kg 
 OpexStorage = 3.24     # € / kg 
@@ -138,11 +140,11 @@ m.addConstr(CapacitySolar <= 200, name="SolarCapacityConstr")
 
 # Production and change in storage needs to meet demand
 m.addConstrs((Demand[h]
-              <= HydrogenProd[h] for h in range(0, nHours)), name="DemandConstr")
+              == HydrogenProd[h] + HydrogenStored[h-1] - HydrogenStored[h] for h in range(1, nHours)), name="DemandConstr")
 
 # There needs to be enough electricity for hydrogen production
 m.addConstrs((HydrogenProd[h]
-              == ElectricityProd[h] * EfficiencyElec for h in range(0, nHours)), name="ElectricityForProdConstr")
+              <= ElectricityProd[h] * EfficiencyElec for h in range(0, nHours)), name="ElectricityForProdConstr")
 
 # Hydrogen production cannot exceed capacity
 m.addConstrs((HydrogenProd[h]
@@ -152,8 +154,8 @@ m.addConstrs((HydrogenProd[h]
 m.addConstrs((HydrogenProd[h] - HydrogenProd[h-1] <= (Pchange * CapacityElec * EfficiencyElec) for h in range(1, nHours)), name="PupConstr")
 m.addConstrs((HydrogenProd[h-1] - HydrogenProd[h] <= (Pchange * CapacityElec * EfficiencyElec) for h in range(1, nHours)), name="PdownConstr")
 
-# Hydrogen storage cannot exceed capacity. Initial condition = 0
-m.addConstrs((HydrogenStored[h] <= CapacityStorage for h in range(1, nHours)), name="CapacityStorageConstr")
+# Hydrogen storage cannot exceed capacity. Initial condition = 4000
+m.addConstrs((HydrogenStored[h] <= CapacityStorage for h in range(0, nHours)), name="CapacityStorageConstr")
 m.addConstr((HydrogenStored[0] == 4000), name="StorageInitConditionConstr")
 
 
