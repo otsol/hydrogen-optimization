@@ -16,8 +16,9 @@ import pandas as pd
 import csv
 
 #### SELECT COUNTRY AND PAP PRICE
-country = "SE" # FI, SE or DE
+country = "DE" # FI, SE or DE
 price = "20" # 22 or 20. 22 = 2022 Q4 PAP prices and 20 = 2020 Q4 PAP prices
+print("Scenario: PAP " + country + " " + price)
 
 #### DOWNLOAD DATA
 ## Wind download
@@ -138,7 +139,7 @@ elif country == "SE":
         PapPriceWind = 69  # PPA pay-as-produced hinta (€ / MWhh)
     else:
         PapPriceWind = 50    
-    ElecTax = 37.5     # sähkönvero (€ / MWh)
+    ElecTax = 0     # sähkönvero (€ / MWh)
     TransmisFee = 0.91   # sähkönsiirtomaksu (€ / MWh)  
 else:
     if price == "22":
@@ -238,12 +239,16 @@ m.addConstrs((HydrogenProd[h]
 m.addConstrs((HydrogenProd[h] - HydrogenProd[h-1] <= (Pchange * CapacityElec * EfficiencyElec) for h in range(1, nHours)), name="PupConstr")
 m.addConstrs((HydrogenProd[h-1] - HydrogenProd[h] <= (Pchange * CapacityElec * EfficiencyElec) for h in range(1, nHours)), name="PdownConstr")
 
-# Hydrogen storage cannot exceed capacity. Initial condition = 0
+# Hydrogen storage cannot exceed capacity. Initial condition = 20% of storage, at end must be at least as much
 m.addConstrs((HydrogenStored[h] <= CapacityStorage for h in range(1, nHours)), name="CapacityStorageConstr")
-m.addConstr((HydrogenStored[0] == 0), name="StorageInitConditionConstr")
+m.addConstr((HydrogenStored[0] == 0.2 * CapacityStorage), name="StorageInitConditionConstr")
+m.addConstr((HydrogenStored[nHours-1] >= 0.2 * CapacityStorage), name="StorageInitConditionConstr")
+
+
 
 # Battery constraints
-m.addConstr((ElectricityStored[0] == 0), name="BatteryInitConditionConstr")  # Battery starts empty
+m.addConstr((ElectricityStored[0] == 0.2*CapacityBattery), name="BatteryInitConditionConstr")  # 20% of capacity
+m.addConstr((ElectricityStored[nHours-1] >= 0.2*CapacityBattery), name="BatteryInitConditionConstr")  # 20% of capacity
 m.addConstrs((ElectricityStored[h] <= CapacityBattery*DepthOfDischarge for h in range(0, nHours)), name="CapacityBatteryConstr")  # Max battery level 80%
 m.addConstrs((ElectricityStored[h]-ElectricityStored[h-1] <= ChargePowerPerc*CapacityBattery*ChargeEfficiency for h in range(1, nHours)), name="BchangeConstr")
 m.addConstrs((ElectricityStored[h-1]-ElectricityStored[h] <= ChargePowerPerc*CapacityBattery*ChargeEfficiency for h in range(1, nHours)), name="BchangeConstr")

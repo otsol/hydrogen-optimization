@@ -16,9 +16,9 @@ import pandas as pd
 import csv
 
 #### SELECT COUNTRY AND PAP PRICE
-country = "DE" # FI, SE or DE
+country = "SE" # FI, SE or DE
 price = "20" # 22 or 20. 22 = 2022 Q4 PAP prices and 20 = 2020 Q4 PAP prices
-print(country + " " + price)
+print("Scenario: BASE " + country + " " + price)
 
 #### CREATE MODEL
 m = gp.Model("BASE")
@@ -77,7 +77,7 @@ elif country == "SE":
         BasePriceWind = 72.45  # PPA pay-as-produced hinta (€ / MWhh)
     else:
         BasePriceWind = 52    
-    ElecTax = 37.5     # sähkönvero (€ / MWh)
+    ElecTax = 0     # sähkönvero (€ / MWh)
     TransmisFee = 0.91   # sähkönsiirtomaksu (€ / MWh)  
 else:
     if price == "22":
@@ -185,7 +185,7 @@ print('Obj : %g' % m.ObjVal)
 
 
 
-if m.SolCount > 0:  # avoid attribute error if no feasible point is available
+""" if m.SolCount > 0:  # avoid attribute error if no feasible point is available
     plt.figure(2)
     res1 = HydrogenStored.X
     res2 = HydrogenProd.X
@@ -204,7 +204,7 @@ if m.SolCount > 0:  # avoid attribute error if no feasible point is available
     plt.plot(res2, color='blue', label='Solar production')
     plt.plot(res4, color='green', label='Electricity used')
     plt.plot(res6, color='black', label='Wind production')
-    plt.legend(loc='best')
+    plt.legend(loc='best') """
     
 
 
