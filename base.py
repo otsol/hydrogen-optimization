@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Optimization of hydrogen production price
 import itertools
-# Constrains: Production of hydrogen has to meet demand, the rest is "wasted"
+# Constraints: Production of hydrogen has to meet demand
 # All optimized variables are real numbers >=0
 
 
@@ -16,7 +16,7 @@ import pandas as pd
 import csv
 
 #### SELECT COUNTRY AND PAP PRICE
-country = "SE" # FI, SE or DE
+country = "DE" # FI, SE or DE
 price = "20" # 22 or 20. 22 = 2022 Q4 PAP prices and 20 = 2020 Q4 PAP prices
 print("Scenario: BASE " + country + " " + price)
 
@@ -84,7 +84,7 @@ else:
         BasePriceWind = 67.2  # PPA pay-as-produced hinta (€ / MWhh)
     else:
         BasePriceWind = 57.8       
-    ElecTax = 0.5     # sähkönvero (€ / MWh)
+    ElecTax = 0     # sähkönvero (€ / MWh)
     TransmisFee = 12   # sähkönsiirtomaksu (€ / MWh)  
 
 CapFactorWind = np.zeros(nHours)  # Tuntikohtainen kapasiteettikerroin
