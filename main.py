@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Optimization of hydrogen production price
 import itertools
-# Constrains: Production of hydrogen has to meet demand, the rest is "wasted"
+# Constraints: Production of hydrogen has to meet demand
 # All optimized variables are real numbers >=0
 
 
@@ -146,7 +146,7 @@ else:
         PapPriceWind = 64  # PPA pay-as-produced hinta (€ / MWhh)
     else:
         PapPriceWind = 55       
-    ElecTax = 0.5     # sähkönvero (€ / MWh)
+    ElecTax = 0     # sähkönvero (€ / MWh)
     TransmisFee = 12   # sähkönsiirtomaksu (€ / MWh)    
 
 CapFactorWind = []  # Tuntikohtainen kapasiteettikerroin
